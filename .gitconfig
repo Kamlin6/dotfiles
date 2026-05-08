@@ -1,0 +1,9 @@
+[user]
+	name = Kamlin6
+	email = 15078908943@163.com
+[core]
+	editor = code --wait
+	autocrlf = input
+	excludesfile = /Users/zhuanzmima0000/.gitignore_global
+[init]
+	defaultBranch = main
