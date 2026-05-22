@@ -3,7 +3,17 @@
 	email = 15078908943@163.com
 [core]
 	editor = code --wait
-	autocrlf = input
+	autocrlf = false
 	excludesfile = /Users/zhuanzmima0000/.gitignore_global
+	eol = lf
 [init]
 	defaultBranch = main
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[http]
+	proxy = http://127.0.0.1:7897
+[https]
+	proxy = http://127.0.0.1:7897

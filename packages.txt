@@ -1,0 +1,13 @@
+smithery/cli
+graphviz
+uv
+opencode
+tree
+stow
+rclone
+tmux
+gh
+huggingface-cli
+git-lfs
+git
+wget
