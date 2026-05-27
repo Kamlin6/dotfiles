@@ -24,3 +24,14 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
+# Homebrew 镜像源
+export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git"
+export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles"
+
+# Quarto 新项目一键初始化
+qnew() {
+  local dir="${1:-untitled}"
+  mkdir -p "$dir" && cp ~/.config/quarto/skeleton/{_quarto.yml,template.qmd} "$dir/"
+  echo "→ $dir 已初始化（记得重命名 template.qmd）"
+}

@@ -1,0 +1,7 @@
+project:
+  type: default
+
+format:
+  pdf:
+    latex-engine: xelatex
+    documentclass: ctexart
