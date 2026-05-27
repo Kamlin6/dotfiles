@@ -1,7 +1,18 @@
 project:
-  type: default
+  type: website
+  output-dir: _site
+
+website:
+  title: "Untitled"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
 
 format:
+  html:
+    theme: cosmo
+    toc: true
   pdf:
     latex-engine: xelatex
     documentclass: ctexart
