@@ -11,3 +11,6 @@ huggingface-cli
 git-lfs
 git
 wget
+portaudio
+caffeine
+quarto
