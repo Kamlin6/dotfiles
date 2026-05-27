@@ -49,7 +49,7 @@ unset __conda_setup
 # 用法: $ qnew my-blog
 qnew() {
   local dir="${1:-untitled}"
-  mkdir -p "$dir" && cp ~/.config/quarto/skeleton/{_quarto.yml,template.qmd} "$dir/"
-  echo "→ $dir 已初始化（记得重命名 template.qmd）"
+  mkdir -p "$dir" && cp ~/.config/quarto/skeleton/_quarto.yml "$dir/" && printf -- "---\ntitle: \"$(basename "$dir")\"\n---\n" > "$dir/index.qmd"
+  echo "→ $dir 已初始化（index.qmd + _quarto.yml）"
 }
 # </Yuri>
