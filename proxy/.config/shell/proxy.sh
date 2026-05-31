@@ -49,5 +49,6 @@ _auto_proxy() {
   fi
 }
 
-_auto_proxy
+# 因为我们设置了很多的镜像源，所以开proxy反而是一件低效的行为了。
+# _auto_proxy
 

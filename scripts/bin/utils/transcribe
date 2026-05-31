@@ -52,7 +52,7 @@ def main():
     )
     args = parser.parse_args()
 
-    model = WhisperModel(args.model, device="mps", compute_type="int8")
+    model = WhisperModel(args.model, device="cpu", compute_type="int8")
     segments, info = model.transcribe(args.audio_path, language=args.language)
 
     if args.language is None:

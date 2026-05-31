@@ -14,5 +14,12 @@ format:
     theme: cosmo
     toc: true
   pdf:
-    latex-engine: xelatex
+    pdf-engine: xelatex
     documentclass: ctexart
+    classoption: "fontset=mac"
+    include-in-header:
+          text: |
+            \usepackage{fancyhdr}
+            \pagestyle{fancy}
+            \fancyhead{}
+            \renewcommand{\headrulewidth}{0pt}

@@ -1,13 +1,24 @@
 # <Yuri>
 # Shell
 export PS1="Kambravolin@Kishin %~ %# "
-export PATH="$HOME/.config/shell:$HOME/.local/bin:$PATH"
+export PATH="$HOME/bin/utils:$HOME/.config/shell:$HOME/.local/bin:$PATH"
+
+alias ls="ls -lah --color=auto"
+alias tree="tree -a"
 # </Yuri>
 
 # <Yuri>
 # ML/AI 缓存路径（隔离系统盘写入）
 export HF_HOME="~/models/huggingface"
 export TORCH_HOME="~/models/torch"
+# </Yuri>
+
+# <Yuri>
+# API-keys
+export MONICA_API_KEY="sk-lyWUmHsc2xda_j0UE1nyB_t1tX5Vpi94_d_gD4LSOGjJbGuMaGVU5C1pwALbvPvF-cqRhv-_dym3FSdhgWkceG-wNRq_"
+export DASHSCOPE_API_KEY="sk-ba1aa8fcd2774a8eaee5de6014a29bd7"
+export BAILIAN_API_KEY="sk-cda82bbded88477aade40d16dafb2232"
+export SILICONFLOW_API_KEY="sk-wtnhcvepzyfupcstetcnvkzwxotymvolqnirjeazemhhsduz"
 # </Yuri>
 
 # <Yuri>
@@ -19,9 +30,9 @@ export MECABRC="/opt/homebrew/etc/mecabrc"
 # 镜像源（中国大陆加速）
 export HF_ENDPOINT="https://hf-mirror.com"
 export UV_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/simple"
-export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git"
-export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
-export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles"
+export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/brew.git"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles"
+export HOMEBREW_API_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles/api"
 # </Yuri>
 
 # <Yuri>
