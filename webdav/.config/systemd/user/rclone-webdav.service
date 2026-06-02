@@ -1,0 +1,16 @@
+[Unit]
+Description=rclone WebDAV for Zotero
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/rclone serve webdav primary:kam-primary/zotero \
+  --addr 127.0.0.1:8080 \
+  --user zotero \
+  --pass Kambravolin6 \
+  --vfs-cache-mode writes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

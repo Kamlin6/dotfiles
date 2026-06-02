@@ -23,3 +23,10 @@ format:
             \pagestyle{fancy}
             \fancyhead{}
             \renewcommand{\headrulewidth}{0pt}
+    docx:
+      toc: true                          # 生成目录
+      toc-depth: 3                       # 目录层级
+      number-sections: true              # 章节编号
+      highlight-style: github            # 代码高亮风格
+      fig-width: 6                       # 图片宽度（英寸）
+      fig-height: 4                      # 图片高度

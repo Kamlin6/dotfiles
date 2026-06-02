@@ -1,0 +1,12 @@
+[Unit]
+Description=Cloudflare Tunnel for WebDAV
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run zotero-webdav
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

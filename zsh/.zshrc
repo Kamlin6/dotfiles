@@ -4,7 +4,7 @@ export PS1="Kambravolin@Kishin %~ %# "
 export PATH="$HOME/bin/utils:$HOME/.config/shell:$HOME/.local/bin:$PATH"
 
 alias ls="ls -lah --color=auto"
-alias tree="tree -a"
+alias tree='tree -a -I  ".git|node_modules|.DS_Store"'
 # </Yuri>
 
 # <Yuri>
@@ -30,7 +30,6 @@ export MECABRC="/opt/homebrew/etc/mecabrc"
 # 镜像源（中国大陆加速）
 export HF_ENDPOINT="https://hf-mirror.com"
 export UV_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/simple"
-export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/brew.git"
 export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles"
 export HOMEBREW_API_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles/api"
 # </Yuri>
