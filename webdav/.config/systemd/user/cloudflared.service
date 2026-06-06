@@ -4,7 +4,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run zotero-webdav
+ExecStart=/usr/local/bin/cloudflared tunnel --config /home/kambravolin/.cloudflared/config.yml run zotero-webdav
 Restart=on-failure
 RestartSec=5
 

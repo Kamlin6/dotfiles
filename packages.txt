@@ -1,4 +1,5 @@
 plantuml
+cloudflared # this is for cloudflared + zotero sys 
 pandoc
 smithery/cli
 graphviz

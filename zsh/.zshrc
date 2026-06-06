@@ -9,8 +9,9 @@ alias tree='tree -a -I  ".git|node_modules|.DS_Store"'
 
 # <Yuri>
 # ML/AI 缓存路径（隔离系统盘写入）
-export HF_HOME="~/models/huggingface"
-export TORCH_HOME="~/models/torch"
+export HF_HOME="$HOME/models/huggingface"
+export HF_HUB_CACHE="$HOME/models/huggingface/hub"
+export TORCH_HOME="$HOME/models/torch"
 # </Yuri>
 
 # <Yuri>
