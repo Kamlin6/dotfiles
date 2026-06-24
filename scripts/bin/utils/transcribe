@@ -1,72 +1,380 @@
-#!/usr/bin/env python3
+#!/Users/zhuanzmima0000/bin/utils/.venv/bin/python3
 """
-transcribe — 用本地 faster-whisper 模型转录音频文件为纯文本
+transcribe — 用本地 mlx-whisper + Silero v6 VAD 转录音频文件
+(faster-whisper 通过 WHISPER_BACKEND=faster 保留为 fallback)
 
 == 配置说明 ==
-
-1. 安装依赖:
-   pip install faster-whisper
-
-2. 模型下载:
-   本脚本使用 Systran/faster-whisper-large-v3（约 3GB）。
-   国内用户首次运行前设置 HF 镜像源，模型会自动从镜像下载：
-   export HF_ENDPOINT=https://hf-mirror.com
-   可以写入 ~/.zshrc 长期生效。
-
-3. 脚本安装:
-   chmod +x 本文件
-   mv 本文件 ~/bin/transcribe
-   确认 ~/bin 在 PATH 中（echo $PATH）
-
-4. device 用 mps（macOS Apple Silicon GPU 加速），
-   遇到兼容问题回退到 device="cpu"。
-
-5. compute_type 用 int8 加快推理速度，
-   发现质量明显下降时改回 float16。
+1. 模型位置:
+   - whisper: ~/models/whisper-mlx/  (mlx-community/whisper-large-v3-turbo-4bit, 463MB)
+   - VAD:     ~/models/silero-v6/silero_vad.onnx  (Silero v6 ONNX, 2MB)
+2. 首次使用:
+   bash ~/bin/utils/scripts/download_whisper_mlx.sh
+   bash ~/bin/utils/scripts/download_silero_v6.sh
+3. 切换 backend:
+   WHISPER_BACKEND=faster transcribe audio.mp3  # 旧路径
+4. device: Metal GPU (macOS Apple Silicon)
+   fallback: WHISPER_BACKEND=faster 自动走 CPU
 
 == 用法 ==
-  transcribe meeting.mp3                    自动检测语言
-  transcribe meeting.mp3 --language ja      指定日语
+  transcribe meeting.mp3                          # 默认 mlx + VAD
+  transcribe meeting.mp3 --format srt             # 字幕
+  transcribe meeting.mp3 --format json            # JSON (含 word-level)
+  transcribe meeting.mp3 --language ja --format srt
+  WHISPER_BACKEND=faster transcribe meeting.mp3  # 旧 faster-whisper 兜底
 """
 
 import argparse
+import json
+import os
+import sys
 from pathlib import Path
-from faster_whisper import WhisperModel
 
+
+# ===== writer 函数 (L41-85 完整保留, 加 isinstance 兼容双端) =====
+
+def format_timestamp(seconds: float) -> str:
+    """SRT 格式: HH:MM:SS,mmm"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _seg_text(seg):
+    return seg["text"] if isinstance(seg, dict) else seg.text
+
+
+def _seg_start(seg):
+    return seg["start"] if isinstance(seg, dict) else seg.start
+
+
+def _seg_end(seg):
+    return seg["end"] if isinstance(seg, dict) else seg.end
+
+
+def _seg_words(seg):
+    words = seg.get("words") if isinstance(seg, dict) else seg.words
+    return words or []
+
+
+def _word_fields(w):
+    if isinstance(w, dict):
+        return w.get("start"), w.get("end"), w.get("word"), w.get("probability")
+    return w.start, w.end, w.word, w.probability
+
+
+def write_txt(segments, output_path: Path):
+    with open(output_path, "w", encoding="utf-8") as f:
+        for segment in segments:
+            f.write(_seg_text(segment) + "\n")
+
+
+def write_srt(segments, output_path: Path):
+    with open(output_path, "w", encoding="utf-8") as f:
+        for idx, segment in enumerate(segments, start=1):
+            start = format_timestamp(_seg_start(segment))
+            end = format_timestamp(_seg_end(segment))
+            f.write(f"{idx}\n")
+            f.write(f"{start} --> {end}\n")
+            f.write(f"{_seg_text(segment)}\n\n")
+
+
+def write_json(segments, info, output_path: Path):
+    if isinstance(info, dict):
+        language = info.get("language")
+        language_probability = info.get("language_probability")
+    else:
+        language = info.language
+        language_probability = getattr(info, "language_probability", None)
+    data = {
+        "language": language,
+        "language_probability": language_probability,
+        "segments": [
+            {
+                "id": i,
+                "start": _seg_start(seg),
+                "end": _seg_end(seg),
+                "text": _seg_text(seg),
+                "words": [
+                    {
+                        "start": ws,
+                        "end": we,
+                        "word": ww,
+                        "probability": wp,
+                    }
+                    for w in _seg_words(seg)
+                    for (ws, we, ww, wp) in [_word_fields(w)]
+                ],
+            }
+            for i, seg in enumerate(segments)
+        ],
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ===== 辅助:统一 writer 入口 =====
+
+def _write_output(args, segments, info):
+    suffix = {"txt": ".txt", "srt": ".srt", "json": ".json"}[args.format]
+    output_path = Path(args.audio_path).with_suffix(suffix)
+    if args.format == "txt":
+        write_txt(segments, output_path)
+    elif args.format == "srt":
+        write_srt(segments, output_path)
+    elif args.format == "json":
+        write_json(segments, info, output_path)
+    print(f"[transcribe] saved {output_path}")
+
+
+def _is_hf_repo_id(s: str) -> bool:
+    """HF repo ID 形如 'mlx-community/whisper-large-v3-turbo-4bit' """
+    return "/" in s and not s.startswith("~") and not s.startswith("/")
+
+
+def _read_audio_ffmpeg(audio_path: str, target_sr: int = 16000) -> "np.ndarray":
+    """用 ffmpeg 子进程读音频到 mono float32 numpy 数组。
+    绕开 silero-vad 自带 read_audio (依赖 torchaudio + torchcodec, 装包太重)。
+    """
+    import subprocess
+    import numpy as np
+    cmd = [
+        "ffmpeg", "-nostdin", "-loglevel", "error",
+        "-i", audio_path,
+        "-f", "s16le", "-acodec", "pcm_s16le",
+        "-ac", "1", "-ar", str(target_sr),
+        "-",  # stdout
+    ]
+    proc = subprocess.run(cmd, capture_output=True, check=True)
+    raw = proc.stdout
+    if not raw:
+        raise RuntimeError(f"ffmpeg returned empty audio for: {audio_path}")
+    # int16 → float32 (-1.0 ~ 1.0)
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    return audio
+
+
+# ===== Silero v6 VAD Wrapper =====
+# 手工实现 OnnxWrapper (参考 snakers4/silero-vad utils_vad.py L46-160)
+# 绕开 silero-vad pip 自带 cache 下载, 模型走本地 ~/models/silero-v6/
+
+class _VADWrapper:
+    def __init__(self, onnx_path: str):
+        import onnxruntime as ort
+        import numpy as np
+        opts = ort.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 1
+        self.session = ort.InferenceSession(
+            onnx_path, sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(0, dtype=np.float32)
+        self.sr = 0
+
+    def reset_states(self) -> None:
+        """每段/每文件开始时由 get_speech_timestamps 内部调用一次。"""
+        import numpy as np
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(0, dtype=np.float32)
+        self.sr = 0
+
+    def __call__(self, x, sr: int):
+        """x: torch.Tensor (1, num_samples) / sr: int → speech_prob: torch.Tensor (1, 1)
+        chunk 长度约束: sr=16000 → 512 samples; sr=8000 → 256 samples.
+        """
+        import numpy as np
+        import torch
+        num_samples = 512 if sr == 16000 else 256
+        context_size = 64 if sr == 16000 else 32
+
+        x_np = x.squeeze(0).numpy() if hasattr(x, "numpy") else np.asarray(x)
+        if x_np.shape[-1] < num_samples:
+            x_np = np.pad(x_np, (0, num_samples - x_np.shape[-1]))
+        elif x_np.shape[-1] > num_samples:
+            x_np = x_np[:num_samples]
+
+        if self._context.shape[0] == 0:
+            self._context = np.zeros(context_size, dtype=np.float32)
+        x_with_ctx = np.concatenate([self._context, x_np])
+
+        out, state = self.session.run(
+            None,
+            {
+                "input": x_with_ctx[None, :].astype(np.float32),
+                "state": self._state,
+                "sr": np.array(sr, dtype=np.int64),
+            },
+        )
+        self._state = state
+        self._context = x_with_ctx[-context_size:]
+        self.sr = sr
+        return torch.from_numpy(out)
+
+
+# ===== backend 路由 =====
 
 def main():
     parser = argparse.ArgumentParser(
-        description="转录音频文件为纯文本",
+        description="转录音频文件 (mlx-whisper + Silero v6 VAD; faster-whisper 保留为 fallback)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("audio_path", help="音频文件路径")
     parser.add_argument(
         "--model",
-        default="large-v3",
-        help="模型标识（默认 large-v3，Systran 版）",
+        default=None,
+        help="模型标识 (默认 ~/models/whisper-mlx 或 mlx-community/whisper-large-v3-turbo-4bit)",
     )
     parser.add_argument(
         "--language",
         default=None,
-        help="语言代码，不指定则模型自动检测",
+        help="语言代码, 不指定则模型自动检测",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["txt", "srt", "json"],
+        default="txt",
+        help="输出格式 (默认 txt)",
+    )
+    parser.add_argument(
+        "--vad",
+        action="store_true",
+        help="[no-op, 向后兼容] 新路径永远走 VAD",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        default=None,
+        help="给模型的上下文提示 (仅第 1 段生效)",
     )
     args = parser.parse_args()
 
-    model = WhisperModel(args.model, device="cpu", compute_type="int8")
-    segments, info = model.transcribe(args.audio_path, language=args.language)
+    backend = os.getenv("WHISPER_BACKEND", "mlx").lower()
+    if backend == "faster":
+        _run_faster_whisper(args)
+    else:
+        _run_mlx_whisper_with_vad(args)
 
+
+# ===== 旧路径 (fallback) =====
+# 原 L88-145 逻辑外提, 0 改动, 仅封装为函数
+
+def _run_faster_whisper(args):
+    """Sprint 19.2a 末态原 faster-whisper 路径, 完全不动, 仅外提为函数。"""
+    from faster_whisper import WhisperModel
+
+    print(f"[transcribe] backend=faster (fallback), model={args.model or 'large-v3'}")
+    model = WhisperModel(args.model or "large-v3", device="cpu", compute_type="int8")
+    segments, info = model.transcribe(
+        args.audio_path,
+        language=args.language,
+        vad_filter=args.vad,
+        word_timestamps=args.format == "json",
+        initial_prompt=args.initial_prompt,
+    )
     if args.language is None:
         print(f"[检测到语言: {info.language} ({info.language_probability:.1%})]")
+    _write_output(args, segments, info)
 
-    # 自动保存到同目录下，扩展名替换为 .txt
-    output_path = Path(args.audio_path).with_suffix(".txt")
-    with open(output_path, "w", encoding="utf-8") as f:
-        for segment in segments:
-            line = segment.text
-            print(line)
-            f.write(line + "\n")
 
-    print(f"[已保存: {output_path}]")
+# ===== 新路径 (mlx-whisper + Silero v6 VAD) =====
+
+def _run_mlx_whisper_with_vad(args):
+    import numpy as np
+    import torch
+    from silero_vad import get_speech_timestamps
+    import mlx_whisper
+
+    # 1. 模型路径 (env 覆盖)
+    model_path = args.model or os.getenv(
+        "WHISPER_MLX_MODEL",
+        os.path.expanduser("~/models/whisper-mlx"),
+    )
+    vad_path = os.getenv(
+        "WHISPER_VAD_MODEL",
+        os.path.expanduser("~/models/silero-v6/silero_vad.onnx"),
+    )
+    print(f"[transcribe] backend=mlx, model={model_path}")
+
+    # 2. 模型完整性检查
+    if not _is_hf_repo_id(model_path) and not os.path.isdir(model_path):
+        print(f"[transcribe] ERROR: {model_path} not found", file=sys.stderr)
+        print(f"[transcribe] Run: bash ~/bin/utils/scripts/download_whisper_mlx.sh", file=sys.stderr)
+        raise SystemExit(2)
+    if not _is_hf_repo_id(model_path):
+        for f in ("config.json", "model.safetensors", "multilingual.tiktoken"):
+            if not os.path.isfile(os.path.join(model_path, f)):
+                print(f"[transcribe] ERROR: {model_path} incomplete (missing {f})", file=sys.stderr)
+                print(f"[transcribe] Run: bash ~/bin/utils/scripts/download_whisper_mlx.sh", file=sys.stderr)
+                raise SystemExit(2)
+        # BK-016: mlx-whisper 0.4.3 期望 weights.safetensors, HF repo 用 model.safetensors
+        # 自动建 symlink, 修复版本不兼容
+        weights_link = os.path.join(model_path, "weights.safetensors")
+        if not os.path.exists(weights_link):
+            os.symlink("model.safetensors", weights_link)
+            print(f"[transcribe] created symlink: weights.safetensors → model.safetensors")
+    if not os.path.isfile(vad_path):
+        print(f"[transcribe] ERROR: {vad_path} not found", file=sys.stderr)
+        print(f"[transcribe] Run: bash ~/bin/utils/scripts/download_silero_v6.sh", file=sys.stderr)
+        raise SystemExit(2)
+
+    # 3. VAD 拆段
+    print(f"[transcribe] loading Silero v6 VAD (ONNX, 2MB)...")
+    vad_model = _VADWrapper(vad_path)
+    audio_np = _read_audio_ffmpeg(args.audio_path, target_sr=16000)
+    wav = torch.from_numpy(audio_np)  # 1D tensor, silero-vad 内部会处理
+    timestamps = get_speech_timestamps(
+        wav, vad_model, sampling_rate=16000, return_seconds=True,
+        min_speech_duration_ms=250,
+        min_silence_duration_ms=100,
+    )
+    print(f"[transcribe] VAD found {len(timestamps)} speech segments")
+
+    if not timestamps:
+        print(f"[transcribe] WARNING: no speech detected, writing empty output")
+        _write_output(args, [], {"language": "unknown", "language_probability": None})
+        return
+
+    # 4. 逐段转录 + VAD 偏移
+    all_segments = []
+    last_language = None
+    total = len(timestamps)
+    for i, ts in enumerate(timestamps):
+        print(
+            f"[transcribe] transcribing segment {i+1}/{total} "
+            f"({ts['start']:.1f}s - {ts['end']:.1f}s)..."
+        )
+        chunk_start_sample = int(ts["start"] * 16000)
+        chunk_end_sample = int(ts["end"] * 16000)
+        chunk_audio = audio_np[chunk_start_sample:chunk_end_sample].astype(np.float32)
+
+        try:
+            result = mlx_whisper.transcribe(
+                chunk_audio,
+                path_or_hf_repo=model_path,
+                language=args.language,
+                word_timestamps=(args.format == "json"),
+                initial_prompt=args.initial_prompt if i == 0 else None,
+                compression_ratio_threshold=2.4,
+                logprob_threshold=-1.0,
+                no_speech_threshold=0.6,
+                condition_on_previous_text=False,  # BK-007: VAD 拆段后不需要跨段条件
+            )
+        except Exception as e:
+            print(f"[transcribe] WARNING: segment {i+1}/{total} failed: {e}, skip", file=sys.stderr)
+            continue
+
+        last_language = result.get("language", "unknown")
+        for seg in result["segments"]:
+            seg = dict(seg)  # 复制, 避免污染 mlx-whisper 内部缓存
+            seg["start"] = seg.get("start", 0.0) + ts["start"]  # +VAD 偏移
+            seg["end"] = seg.get("end", 0.0) + ts["start"]
+            all_segments.append(seg)
+
+    # 5. 输出
+    if args.language is None and last_language and last_language != "unknown":
+        print(f"[检测到语言: {last_language}]")
+    _write_output(args, all_segments, {"language": last_language, "language_probability": None})
 
 
 if __name__ == "__main__":

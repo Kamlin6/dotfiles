@@ -1,0 +1,37 @@
+[project]
+name = "bin-utils"
+version = "1.0.0"
+description = "Kishin's personal CLI tool collection"
+requires-python = ">=3.12"
+dependencies = [
+    # transcribe (Sprint 19.2b: mlx-whisper + Silero v6 VAD; faster-whisper 保留为 fallback)
+    "faster-whisper",
+    "mlx-whisper>=0.4.3",
+    "silero-vad>=6.0",
+    "onnxruntime>=1.20.0",
+    # ocr
+    "rapidocr-onnxruntime",
+    "PyMuPDF",
+    "Pillow",
+    # tts-eval
+    "openai-whisper",
+    "jiwer",
+    "librosa",
+    "speechmos",
+    # 人声/说话人分离
+    "demucs",
+    "asteroid",
+    # source_to_md
+    "openpyxl",
+    "python-pptx",
+    "mammoth",
+    "markdownify",
+    "beautifulsoup4",
+    "ebooklib",
+    "nbconvert",
+    "requests",
+    # web_to_md (optional: curl_cffi for WeChat)
+]
+
+[tool.uv]
+package = false
