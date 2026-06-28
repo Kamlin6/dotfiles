@@ -247,6 +247,11 @@ def main():
         default=None,
         help="给模型的上下文提示 (仅第 1 段生效)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="输出每段转录质量 (avg_logprob) 到 stderr",
+    )
     args = parser.parse_args()
 
     backend = os.getenv("WHISPER_BACKEND", "mlx").lower()
@@ -261,6 +266,8 @@ def main():
 
 def _run_faster_whisper(args):
     """Sprint 19.2a 末态原 faster-whisper 路径, 完全不动, 仅外提为函数。"""
+    if getattr(args, 'verbose', False):
+        print("[transcribe] WARNING: --verbose not supported with faster-whisper backend", file=sys.stderr)
     from faster_whisper import WhisperModel
 
     print(f"[transcribe] backend=faster (fallback), model={args.model or 'large-v3'}")
@@ -284,6 +291,9 @@ def _run_mlx_whisper_with_vad(args):
     import torch
     from silero_vad import get_speech_timestamps
     import mlx_whisper
+
+    _QUALITY_GOOD_THRESHOLD = -0.25
+    _QUALITY_WARN_THRESHOLD = -0.35
 
     # 1. 模型路径 (env 覆盖)
     model_path = args.model or os.getenv(
@@ -327,6 +337,8 @@ def _run_mlx_whisper_with_vad(args):
         wav, vad_model, sampling_rate=16000, return_seconds=True,
         min_speech_duration_ms=250,
         min_silence_duration_ms=100,
+        max_speech_duration_s=30,
+        speech_pad_ms=0,
     )
     print(f"[transcribe] VAD found {len(timestamps)} speech segments")
 
@@ -339,6 +351,8 @@ def _run_mlx_whisper_with_vad(args):
     all_segments = []
     last_language = None
     total = len(timestamps)
+    quality_counts = {"GOOD": 0, "WARN": 0, "LOW": 0}
+    quality_total = 0
     for i, ts in enumerate(timestamps):
         print(
             f"[transcribe] transcribing segment {i+1}/{total} "
@@ -365,15 +379,36 @@ def _run_mlx_whisper_with_vad(args):
             continue
 
         last_language = result.get("language", "unknown")
-        for seg in result["segments"]:
+        for j, seg in enumerate(result["segments"]):
             seg = dict(seg)  # 复制, 避免污染 mlx-whisper 内部缓存
             seg["start"] = seg.get("start", 0.0) + ts["start"]  # +VAD 偏移
             seg["end"] = seg.get("end", 0.0) + ts["start"]
             all_segments.append(seg)
+            if args.verbose:
+                lp = seg.get("avg_logprob", 0.0)
+                if lp >= _QUALITY_GOOD_THRESHOLD:
+                    label = "GOOD"
+                elif lp >= _QUALITY_WARN_THRESHOLD:
+                    label = "WARN"
+                else:
+                    label = "LOW"
+                quality_counts[label] += 1
+                quality_total += 1
+                print(
+                    f"[quality] vad {i+1}/{total} sub {j+1}: "
+                    f"avg_logprob={lp:.2f} {label}",
+                    file=sys.stderr,
+                )
 
     # 5. 输出
     if args.language is None and last_language and last_language != "unknown":
         print(f"[检测到语言: {last_language}]")
+    if args.verbose and quality_total > 0:
+        g, w, l = quality_counts["GOOD"], quality_counts["WARN"], quality_counts["LOW"]
+        print(
+            f"[quality] summary: {g} GOOD, {w} WARN, {l} LOW out of {quality_total} segments",
+            file=sys.stderr,
+        )
     _write_output(args, all_segments, {"language": last_language, "language_probability": None})
 
 
