@@ -4,16 +4,13 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.civilight.tts-gateway</string>
+    <string>com.civilight.gradio-demo</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/uv</string>
         <string>run</string>
         <string>python</string>
-        <string>-m</string>
-        <string>voice_infra.gateway</string>
-        <string>--port</string>
-        <string>8000</string>
+        <string>gradio/app.py</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/zhuanzmima0000/user/voice-infra</string>
@@ -22,8 +19,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/com.civilight.tts-gateway.stdout.log</string>
+    <string>/tmp/com.civilight.gradio-demo.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/com.civilight.tts-gateway.stderr.log</string>
+    <string>/tmp/com.civilight.gradio-demo.stderr.log</string>
 </dict>
 </plist>

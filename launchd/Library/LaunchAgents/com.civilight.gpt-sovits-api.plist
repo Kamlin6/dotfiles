@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.civilight.gpt-sovits-api</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/zhuanzmima0000/miniconda3/envs/GPTSoVITS/bin/python</string>
+        <string>api_v2.py</string>
+        <string>-a</string>
+        <string>127.0.0.1</string>
+        <string>-p</string>
+        <string>9880</string>
+        <string>-c</string>
+        <string>GPT_SoVITS/configs/tts_infer.yaml</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/zhuanzmima0000/user/GPT-SoVITS</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.civilight.gpt-sovits-api.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.civilight.gpt-sovits-api.stderr.log</string>
+</dict>
+</plist>

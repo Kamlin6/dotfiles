@@ -5,6 +5,8 @@ export PATH="$HOME/bin/utils:$HOME/.config/shell:$HOME/.local/bin:$PATH"
 
 alias ls="ls -lah --color=auto"
 alias tree='tree -a -I  ".git|node_modules|.DS_Store"'
+
+export OPENCODE_ENABLE_EXA=1
 # </Yuri>
 
 # <Yuri>

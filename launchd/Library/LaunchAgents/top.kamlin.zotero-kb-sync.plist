@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>top.kamlin.zotero-kb-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/uv</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>/Users/zhuanzmima0000/.config/opencode/mcp/zotero-kb</string>
+        <string>main.py</string>
+        <string>--sync</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/zhuanzmima0000/.config/opencode/mcp/zotero-kb</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/zhuanzmima0000/.zotero-kb/sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/zhuanzmima0000/.zotero-kb/sync.log</string>
+</dict>
+</plist>

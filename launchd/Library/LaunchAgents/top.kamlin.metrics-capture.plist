@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>top.kamlin.metrics-capture</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/uv</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>/Users/zhuanzmima0000/.config/opencode/mcp/metrics-service</string>
+        <string>python</string>
+        <string>app.py</string>
+        <string>--capture</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/zhuanzmima0000/.config/opencode/mcp/metrics-service</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>DASHSCOPE_API_KEY</key>
+        <string>sk-ba1aa8fcd2774a8eaee5de6014a29bd7</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/zhuanzmima0000/.mcp-metrics/capture.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/zhuanzmima0000/.mcp-metrics/capture.log</string>
+</dict>
+</plist>

@@ -4,7 +4,7 @@
 [core]
 	editor = code --wait
 	autocrlf = false
-	excludesfile = ~/.gitignore_global
+	excludesfile = /Users/zhuanzmima0000/.gitignore
 	eol = lf
 [init]
 	defaultBranch = main
