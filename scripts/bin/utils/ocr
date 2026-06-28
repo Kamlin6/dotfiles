@@ -1,0 +1,169 @@
+#!/Users/zhuanzmima0000/bin/utils/.venv/bin/python3
+"""
+ocr — 用本地 ONNX OCR 模型识别图片/PDF 中的文字
+
+== 用法 ==
+  ocr screenshot.png                   单图片 -> stdout
+  ocr screenshot.png -o result.txt     写入文件
+  ocr *.png                            批量
+  ocr paper.pdf                        PDF 全本
+  ocr paper.pdf --pages 3-5            选页
+  ocr paper.pdf --format json          带坐标的结构化输出
+
+== 依赖 ==
+  uv add rapidocr-onnxruntime PyMuPDF Pillow
+  或：
+  pip install rapidocr-onnxruntime PyMuPDF Pillow
+
+== 模型 ==
+  默认使用 ~/models/ocr/ 下的 ONNX 模型：
+    ch_PP-OCRv4_det_infer.onnx   文字检测
+    ch_PP-OCRv4_rec_infer.onnx   文字识别
+    ch_ppocr_mobile_v2.0_cls_infer.onnx  方向分类
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+
+def expand_path(p: str) -> str:
+    return str(Path(p).expanduser().resolve())
+
+
+def parse_pages(spec: str) -> list[int] | None:
+    """解析 --pages 参数, 如 '1-5,7,9-11' -> [1,2,3,4,5,7,9,10,11]"""
+    if not spec:
+        return None
+    pages = []
+    for part in spec.split(","):
+        part = part.strip()
+        m = re.match(r"^(\d+)-(\d+)$", part)
+        if m:
+            pages.extend(range(int(m.group(1)), int(m.group(2)) + 1))
+        else:
+            pages.append(int(part))
+    return sorted(set(pages))
+
+
+def init_engine(model_dir: str):
+    from rapidocr_onnxruntime import RapidOCR
+    det = os.path.join(model_dir, "ch_PP-OCRv4_det_infer.onnx")
+    rec = os.path.join(model_dir, "ch_PP-OCRv4_rec_infer.onnx")
+    cls = os.path.join(model_dir, "ch_ppocr_mobile_v2.0_cls_infer.onnx")
+    missing = [p for p in [det, rec, cls] if not os.path.exists(p)]
+    if missing:
+        print(f"[错误] 模型文件缺失: {missing}", file=sys.stderr)
+        sys.exit(1)
+    return RapidOCR(model_det_path=det, model_rec_path=rec, model_cls_path=cls)
+
+
+def ocr_image(engine, image_path: str) -> list[dict]:
+    raw = engine(image_path)
+    items = []
+    if raw and raw[0]:
+        for det in raw[0]:
+            bbox, text, confidence = det
+            items.append({
+                "text": text,
+                "confidence": round(confidence, 4),
+                "bbox": bbox,
+            })
+    return items
+
+
+def output_text(items_list: list[list[dict]], out_fp, page_labels: list[str] = None):
+    for i, items in enumerate(items_list):
+        if page_labels:
+            print(f"--- {page_labels[i]} ---", file=out_fp)
+        for it in items:
+            print(it["text"], file=out_fp)
+
+
+def output_json(items_list: list[list[dict]], out_fp, page_labels: list[str] = None):
+    records = []
+    for i, items in enumerate(items_list):
+        label = page_labels[i] if page_labels else str(i + 1)
+        for it in items:
+            records.append({
+                "page": label,
+                "text": it["text"],
+                "confidence": it["confidence"],
+                "bbox": it["bbox"],
+            })
+    json.dump(records, out_fp, ensure_ascii=False, indent=2)
+    print(file=out_fp)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="识别图片/PDF 中的文字",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("path", nargs="+", help="图片或 PDF 文件路径（支持通配符）")
+    parser.add_argument("--pages", help="PDF 页码范围, e.g. 1-5,3,7-9")
+    parser.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
+    parser.add_argument("-o", "--output", help="输出文件路径（默认 stdout）")
+    parser.add_argument("--model-dir", default="~/models/ocr/", help="ONNX 模型目录")
+    args = parser.parse_args()
+
+    model_dir = expand_path(args.model_dir)
+    engine = init_engine(model_dir)
+
+    page_spec = parse_pages(args.pages)
+    out_fp = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
+
+    all_items = []
+    page_labels = []
+
+    for path_str in args.path:
+        p = Path(path_str)
+        if not p.exists():
+            print(f"[警告] 文件不存在: {p}", file=sys.stderr)
+            continue
+
+        ext = p.suffix.lower()
+
+        if ext in (".pdf",):
+            import fitz
+            doc = fitz.open(str(p))
+            pages = page_spec if page_spec else range(1, len(doc) + 1)
+            for pg in pages:
+                if pg < 1 or pg > len(doc):
+                    print(f"[警告] 页码越界: {p.name} 第 {pg} 页", file=sys.stderr)
+                    continue
+                page = doc[pg - 1]
+                pix = page.get_pixmap(dpi=200)
+                img_bytes = pix.tobytes("png")
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(img_bytes)
+                    tmp_path = tmp.name
+                items = ocr_image(engine, tmp_path)
+                os.unlink(tmp_path)
+                all_items.append(items)
+                page_labels.append(f"{p.name} 第 {pg} 页")
+
+        elif ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"):
+            items = ocr_image(engine, str(p))
+            all_items.append(items)
+            page_labels.append(p.name)
+
+        else:
+            print(f"[警告] 不支持的文件格式: {ext}", file=sys.stderr)
+
+    if args.format == "json":
+        output_json(all_items, out_fp, page_labels)
+    else:
+        output_text(all_items, out_fp, page_labels)
+
+    if args.output:
+        print(f"[已保存: {args.output}]")
+        out_fp.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,236 @@
+#!/Users/zhuanzmima0000/bin/utils/.venv/bin/python3
+"""
+tts-eval — TTS 合成质量量化评估 CLI
+
+计算给定参考音频和合成音频之间的 WER/CER + DNSMOS。
+日本语日文 ASR 默认使用 whisper base，支持降级到 macOS speech 命令。
+
+== 依赖 ==
+  pip install openai-whisper jiwer speechmos librosa
+
+== 安装 ==
+  chmod +x 本文件
+  mv 本文件 ~/bin/utils/tts-eval
+
+== 用法 ==
+  tts-eval --ref_dir sliced_wavs/ --syn_dir synthetic/ \
+           --manifest manifest.json --output report.json
+"""
+
+import argparse
+import json
+import os
+import random
+import shutil
+import subprocess as sp
+import sys
+import traceback
+from pathlib import Path
+
+VERSION = "1.0.0"
+DEFAULT_N_SAMPLES = 20
+
+
+def _check_import(name: str) -> bool:
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
+HAVE_WHISPER = _check_import("whisper")
+HAVE_JIWER = _check_import("jiwer")
+HAVE_SPEECH = sys.platform == "darwin" and shutil.which("speech") is not None
+
+
+def sample_segments(manifest: list[dict], n: int = DEFAULT_N_SAMPLES,
+                    rng: random.Random = None) -> list[dict]:
+    if rng is None:
+        rng = random.Random(42)
+    medium = [s for s in manifest if 3000 <= s.get("duration_ms", 0) <= 7000]
+    other = [s for s in manifest if s not in medium]
+    n_medium = min(int(n * 0.8), len(medium))
+    n_other = min(n - n_medium, len(other))
+    selected = rng.sample(medium, n_medium) if n_medium > 0 else []
+    selected += rng.sample(other, n_other) if n_other > 0 else []
+    if len(selected) < n and len(manifest) > len(selected):
+        remaining = [s for s in manifest if s not in selected]
+        extra = rng.sample(remaining, min(n - len(selected), len(remaining)))
+        selected.extend(extra)
+    return selected
+
+
+def compute_wer_cer(ref_texts: list[str], hyp_texts: list[str]) -> dict | None:
+    if not HAVE_JIWER:
+        print("[INFO] jiwer unavailable, skip WER/CER")
+        return None
+    import jiwer
+    try:
+        return {
+            "wer": round(jiwer.wer(ref_texts, hyp_texts), 4),
+            "cer": round(jiwer.cer(ref_texts, hyp_texts), 4),
+        }
+    except Exception as e:
+        print(f"[WARNING] WER/CER failed: {e}", file=sys.stderr)
+        return None
+
+
+def asr_whisper(audio_paths: list[str], model_name: str = "base") -> list[str] | None:
+    if not HAVE_WHISPER:
+        return None
+    import whisper
+    try:
+        model = whisper.load_model(model_name)
+        texts = []
+        for i, path in enumerate(audio_paths):
+            print(f"  ASR [{i+1}/{len(audio_paths)}]: {os.path.basename(path)}")
+            texts.append(model.transcribe(path, language="ja")["text"].strip())
+        return texts
+    except Exception as e:
+        print(f"[WARNING] whisper ASR failed: {e}", file=sys.stderr)
+        return None
+
+
+def asr_macos(audio_paths: list[str]) -> list[str] | None:
+    if not HAVE_SPEECH:
+        return None
+    try:
+        texts = []
+        for path in audio_paths:
+            r = sp.run(["speech", "transcribe", "-f", path, "-o", "-"],
+                       capture_output=True, text=True, timeout=60)
+            texts.append(r.stdout.strip() if r.returncode == 0 else "")
+        return texts
+    except Exception as e:
+        print(f"[WARNING] macOS ASR failed: {e}", file=sys.stderr)
+        return None
+
+
+def transcribe(audio_paths: list[str], model: str = "base") -> list[str] | None:
+    result = asr_whisper(audio_paths, model)
+    if result is None:
+        result = asr_macos(audio_paths)
+    return result
+
+
+def compute_dnsmos(audio_paths: list[str]) -> float | None:
+    try:
+        import speechmos.dnsmos as dnsmos
+        import librosa
+        scores = []
+        for path in audio_paths:
+            audio, sr = librosa.load(path, sr=16000)
+            result = dnsmos.run(audio, sr, model_type="dnsmos")
+            scores.append(result["ovrl_mos"])
+        return round(sum(scores) / len(scores), 2) if scores else None
+    except (ImportError, Exception) as e:
+        print(f"[INFO] DNSMOS unavailable: {e}")
+        return None
+
+
+def load_manifest(path: str) -> list[dict]:
+    p = Path(path)
+    if not p.exists():
+        print(f"[ERROR] Manifest not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    with open(p, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        print(f"[ERROR] Manifest must be a JSON array", file=sys.stderr)
+        sys.exit(1)
+    return data
+
+
+def main():
+    parser = argparse.ArgumentParser(description="TTS quality evaluation: WER/CER + DNSMOS")
+    parser.add_argument("--version", action="version", version=f"tts-eval {VERSION}")
+    parser.add_argument("--ref_dir", help="Reference audio directory (original recordings)")
+    parser.add_argument("--syn_dir", required=True, help="Synthesized audio directory")
+    parser.add_argument("--manifest", required=True, help="Manifest JSON path")
+    parser.add_argument("--output", "-o", default="eval_report.json")
+    parser.add_argument("--n_samples", type=int, default=DEFAULT_N_SAMPLES)
+    parser.add_argument("--whisper_model", default="base")
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    if not HAVE_WHISPER and not HAVE_SPEECH:
+        print("[WARNING] No ASR engine available", file=sys.stderr)
+    if not HAVE_JIWER:
+        print("[WARNING] jiwer unavailable, WER/CER will skip", file=sys.stderr)
+
+    manifest = load_manifest(args.manifest)
+    print(f"Manifest: {len(manifest)} entries")
+    rng = random.Random(args.seed)
+    samples = sample_segments(manifest, args.n_samples, rng)
+    print(f"Sampled: {len(samples)} (seed={args.seed})")
+
+    ref_audio_paths = []
+    syn_audio_paths = []
+    for s in samples:
+        slice_name = s.get("slice_name", "")
+        if args.ref_dir:
+            ref_path = os.path.join(args.ref_dir, f"{slice_name}.wav")
+            if os.path.exists(ref_path):
+                ref_audio_paths.append(ref_path)
+        syn_path = os.path.join(args.syn_dir, f"{slice_name}.wav")
+        if os.path.exists(syn_path):
+            syn_audio_paths.append(syn_path)
+
+    print(f"Ref audio: {len(ref_audio_paths)}/{len(samples)} available")
+    print(f"Syn audio: {len(syn_audio_paths)}/{len(samples)} available")
+
+    metrics = {}
+
+    # WER/CER: ref audio transcription vs syn audio transcription
+    ref_texts = transcribe(ref_audio_paths, args.whisper_model) if ref_audio_paths else None
+    syn_texts = transcribe(syn_audio_paths, args.whisper_model) if syn_audio_paths else None
+    if ref_texts and syn_texts and len(ref_texts) == len(syn_texts):
+        result = compute_wer_cer(ref_texts, syn_texts)
+        if result:
+            metrics.update(result)
+
+    # WER/CER: manifest text vs syn transcription
+    ref_manifest = [s.get("text", "") for s in samples
+                    if os.path.exists(os.path.join(args.syn_dir, f"{s.get('slice_name', '')}.wav"))]
+    if HAVE_JIWER and syn_texts and ref_manifest and len(syn_texts) == len(ref_manifest):
+        result = compute_wer_cer(ref_manifest, syn_texts)
+        if result:
+            metrics["wer_vs_manifest"] = result["wer"]
+            metrics["cer_vs_manifest"] = result["cer"]
+
+    # DNSMOS
+    if syn_audio_paths:
+        mos = compute_dnsmos(syn_audio_paths)
+        if mos is not None:
+            metrics["mos_predicted"] = mos
+
+    report = {
+        "metrics": {k: v for k, v in metrics.items() if v is not None},
+        "samples": len(syn_audio_paths),
+        "sample_details": [
+            {"slice_name": s["slice_name"], "duration_ms": s.get("duration_ms", 0),
+             "text": s.get("text", "")[:80]}
+            for s in samples
+        ],
+    }
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+
+    print(f"\nReport saved: {output_path}")
+    print(f"Summary:")
+    for k, v in report["metrics"].items():
+        print(f"  {k}: {v}")
+    print("Done.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
